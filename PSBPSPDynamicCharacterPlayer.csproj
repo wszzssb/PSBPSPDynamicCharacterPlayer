@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>PSBPSPDynamicCharacterPlayer</AssemblyName>
+    <RootNamespace>PSBPSPDynamicCharacterPlayer</RootNamespace>
+
+    <!-- FreeMote DLL 所在目录。可复制到本仓库的 lib 目录，或用 -p:FreeMoteDir=... 覆盖 -->
+    <FreeMoteDir Condition="'$(FreeMoteDir)'=='' and Exists('$(MSBuildProjectDirectory)\lib\FreeMote.NET.dll')">$(MSBuildProjectDirectory)\lib</FreeMoteDir>
+    <FreeMoteDir Condition="'$(FreeMoteDir)'==''">D:\test\galgame\解包工具\FreeMoteViewer\lib</FreeMoteDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="FreeMote.NET">
+      <HintPath>$(FreeMoteDir)\FreeMote.NET.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="FreeMote">
+      <HintPath>$(FreeMoteDir)\FreeMote.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="FreeMote.Psb">
+      <HintPath>$(FreeMoteDir)\FreeMote.Psb.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="FreeMote.Plugins">
+      <HintPath>$(FreeMoteDir)\FreeMote.Plugins.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="FreeMote.PsBuild">
+      <HintPath>$(FreeMoteDir)\FreeMote.PsBuild.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(FreeMoteDir)\*.dll" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />
+    <None Include="$(FreeMoteDir)\x64\*.dll" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />
+    <None Include="$(FreeMoteDir)\*.exe" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,219 @@
+<Window x:Class="PSBPSPDynamicCharacterPlayer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PSB/PSP动态立绘播放器" Width="1500" Height="900"
+        WindowStartupLocation="CenterScreen" Background="{DynamicResource ThemeBg}">
+    <Window.Resources>
+        <SolidColorBrush x:Key="ThemeBg" Color="#101018"/>
+        <SolidColorBrush x:Key="ThemePanel" Color="#181826"/>
+        <SolidColorBrush x:Key="ThemeItem" Color="#1e1e2c"/>
+        <SolidColorBrush x:Key="ThemeAccent" Color="#3a5f9f"/>
+        <SolidColorBrush x:Key="ThemeHeader" Color="#9ec5ff"/>
+        <SolidColorBrush x:Key="ThemeText" Color="#e8e8f0"/>
+        <SolidColorBrush x:Key="ThemeSubText" Color="#8899aa"/>
+        <SolidColorBrush x:Key="ThemeBorder" Color="#334455"/>
+        <SolidColorBrush x:Key="ThemeHover" Color="#29364d"/>
+        <SolidColorBrush x:Key="ThemeBorderStrong" Color="#7ab8ff"/>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="330" MinWidth="200"/>
+            <ColumnDefinition Width="6"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- 左侧：模型库 + 已添加舞台模型 -->
+        <DockPanel Grid.Column="0" Margin="8">
+            <Grid DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition/>
+                    <ColumnDefinition/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition/>
+                    <RowDefinition/>
+                </Grid.RowDefinitions>
+                <Button x:Name="AddBtn" Content="开启所选模型" Grid.Row="0" Grid.Column="0" Margin="2" Padding="6,5" Click="AddBtn_Click"/>
+                <Button x:Name="CloseBtn" Content="关闭选中模型" Grid.Row="0" Grid.Column="1" Margin="2" Padding="6,5" Click="CloseBtn_Click"/>
+                <Button x:Name="ChooseFolderBtn" Content="选择模型文件夹" Grid.Row="1" Grid.Column="0" Margin="2" Padding="6,5" Click="ChooseFolderBtn_Click"/>
+                <Button x:Name="OpenFolderBtn" Content="打开当前文件夹" Grid.Row="1" Grid.Column="1" Margin="2" Padding="6,5" Click="OpenFolderBtn_Click"/>
+            </Grid>
+
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- 模型库框 -->
+                <Border x:Name="LibraryFrame" Grid.Row="0" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="6" Padding="4" Margin="0,0,0,6">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Top">
+                            <TextBlock Text="模型库" Foreground="{DynamicResource ThemeHeader}" FontSize="14" FontWeight="Bold" Margin="4,0,0,2"/>
+                            <TextBlock x:Name="FolderPathText" Foreground="{DynamicResource ThemeSubText}" FontSize="10" Margin="4,0,0,4"
+                                       TextTrimming="CharacterEllipsis" MaxWidth="300" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                        </StackPanel>
+                        <ListBox x:Name="ModelList" Background="{DynamicResource ThemePanel}" Foreground="{DynamicResource ThemeText}"
+                                 BorderBrush="{DynamicResource ThemeBorder}"
+                                 Padding="2" SelectionChanged="ModelList_SelectionChanged"
+                                 MouseDoubleClick="ModelList_MouseDoubleClick"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    <Setter Property="Padding" Value="6"/>
+                                    <Setter Property="Margin" Value="1"/>
+                                    <Setter Property="Background" Value="{DynamicResource ThemeItem}"/>
+                                    <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorder}"/>
+                                    <Setter Property="BorderThickness" Value="1"/>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter Property="Background" Value="{DynamicResource ThemeAccent}"/>
+                                            <Setter Property="Foreground" Value="White"/>
+                                            <Setter Property="FontWeight" Value="Bold"/>
+                                            <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderStrong}"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Background" Value="{DynamicResource ThemeHover}"/>
+                                            <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderStrong}"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                        </ListBox>
+                    </DockPanel>
+                </Border>
+
+                <!-- 已添加模型框 -->
+                <Border x:Name="StageFrame" Grid.Row="1" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="6" Padding="4">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="已添加模型（点击框切换，拖动调图层）" Foreground="{DynamicResource ThemeHeader}" FontSize="13" FontWeight="Bold" Margin="4,0,0,4"/>
+                        <ListBox x:Name="StageList" Background="{DynamicResource ThemePanel}" Foreground="{DynamicResource ThemeText}"
+                                 BorderBrush="{DynamicResource ThemeBorder}"
+                                 Padding="2" SelectionChanged="StageList_SelectionChanged"
+                                 MouseDoubleClick="StageList_MouseDoubleClick"
+                                 AllowDrop="True"
+                                 PreviewMouseLeftButtonDown="StageList_PreviewMouseLeftButtonDown"
+                                 MouseMove="StageList_MouseMove"
+                                 DragOver="StageList_DragOver"
+                                 DragLeave="StageList_DragLeave"
+                                 Drop="StageList_Drop"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    <Setter Property="Padding" Value="6"/>
+                                    <Setter Property="Margin" Value="1"/>
+                                    <Setter Property="Background" Value="{DynamicResource ThemeItem}"/>
+                                    <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorder}"/>
+                                    <Setter Property="BorderThickness" Value="1"/>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter Property="Background" Value="{DynamicResource ThemeAccent}"/>
+                                            <Setter Property="Foreground" Value="White"/>
+                                            <Setter Property="FontWeight" Value="Bold"/>
+                                            <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderStrong}"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Background" Value="{DynamicResource ThemeHover}"/>
+                                            <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderStrong}"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                        </ListBox>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </DockPanel>
+
+        <!-- 可拖动的分隔条 -->
+        <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                      ResizeBehavior="PreviousAndNext" ResizeDirection="Columns" Background="{DynamicResource ThemeBorder}"/>
+
+        <!-- 右侧：背景 + 舞台 + 调试区 -->
+        <Grid Grid.Column="2" Margin="8">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="6"/>
+                <RowDefinition Height="180" MinHeight="70" MaxHeight="320"/>
+            </Grid.RowDefinitions>
+
+                          <!-- 顶部工具栏：自适应换行，保证窗口缩小时功能按钮自动排列 -->
+              <WrapPanel Grid.Row="0" Margin="0,0,0,8" VerticalAlignment="Center">
+                  <Button x:Name="BgImageBtn" Content="背景图片" Margin="0,0,4,4" Padding="10,6" Click="BgImageBtn_Click"/>
+                  <Button x:Name="BgVideoBtn" Content="背景视频" Margin="0,0,4,4" Padding="10,6" Click="BgVideoBtn_Click"/>
+                  <Button x:Name="ClearBgBtn" Content="清除背景" Margin="0,0,4,4" Padding="10,6" Click="ClearBgBtn_Click"/>
+                  <Button x:Name="RefreshBtn" Content="刷新清晰度" Margin="0,0,12,4" Padding="10,6" Click="RefreshClarityBtn_Click"/>
+                  <Button x:Name="PrevBtn" Content="◀上一个" Margin="0,0,4,4" Padding="10,6" Click="PrevBtn_Click"/>
+                  <Button x:Name="NextBtn" Content="下一个▶" Margin="0,0,4,4" Padding="10,6" Click="NextBtn_Click"/>
+                  <Button x:Name="PauseCurrentBtn" Content="暂停当前" Margin="0,0,4,4" Padding="10,6" Click="PauseCurrentBtn_Click"/>
+                    <Button x:Name="ResumeCurrentBtn" Content="恢复当前" Margin="0,0,4,4" Padding="10,6" Click="ResumeCurrentBtn_Click"/>
+                    <Button x:Name="PauseAllBtn" Content="全部暂停" Margin="0,0,4,4" Padding="10,6" Click="PauseAllBtn_Click"/>
+                    <Button x:Name="ResumeAllBtn" Content="全部恢复" Margin="0,0,12,4" Padding="10,6" Click="ResumeAllBtn_Click"/>
+                  
+
+                  <TextBlock Text="背景模式" Foreground="{DynamicResource ThemeHeader}" FontSize="12" VerticalAlignment="Center" Margin="4,0,4,0"/>
+                  <ComboBox x:Name="BgModeCombo" Width="90" SelectedIndex="0" Margin="0,0,12,4"
+                            SelectionChanged="BgModeCombo_SelectionChanged">
+                      <ComboBoxItem Content="自适应"/>
+                      <ComboBoxItem Content="拉伸"/>
+                      <ComboBoxItem Content="裁剪"/>
+                      <ComboBoxItem Content="原始大小"/>
+                  </ComboBox>
+
+                  <TextBlock Text="主题" Foreground="{DynamicResource ThemeHeader}" FontSize="12" VerticalAlignment="Center" Margin="4,0,4,0"/>
+                  <ComboBox x:Name="ThemeCombo" Width="90" SelectedIndex="0" Margin="0,0,4,4"
+                            SelectionChanged="ThemeCombo_SelectionChanged">
+                      <ComboBoxItem Content="深蓝"/>
+                      <ComboBoxItem Content="深红"/>
+                      <ComboBoxItem Content="深绿"/>
+                      <ComboBoxItem Content="紫色"/>
+                      <ComboBoxItem Content="灰色"/>
+                  </ComboBox>
+                  <Button x:Name="CustomThemeBtn" Content="自定义主题色" Margin="0,0,12,4" Padding="8,6" Click="CustomThemeBtn_Click"/>
+
+                  <TextBlock Text="缩放" Foreground="{DynamicResource ThemeHeader}" FontSize="12" VerticalAlignment="Center" Margin="4,0,6,0"/>
+                  <TextBlock x:Name="ZoomText" Text="100%" Foreground="{DynamicResource ThemeText}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                  <Slider x:Name="ZoomSlider" Width="150" Minimum="0.01" Maximum="4.0" Value="1.0"
+                          TickFrequency="0.1" IsSnapToTickEnabled="True"
+                          ValueChanged="ZoomSlider_ValueChanged" VerticalAlignment="Center"/>
+                  <Button x:Name="ResetZoomBtn" Content="重置" Margin="6,0,0,4" Padding="10,6" Click="ResetZoomBtn_Click"/>
+              </WrapPanel>
+<!-- 舞台：背景图片/视频 + 动态立绘 -->
+            <Border Grid.Row="1" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="8" Background="#000" ClipToBounds="True"
+                    MouseWheel="Viewport_MouseWheel"
+                    MouseDown="Viewport_MouseDown"
+                    MouseMove="Viewport_MouseMove"
+                    MouseUp="Viewport_MouseUp"
+                    MouseLeave="Viewport_MouseLeave">
+                <Grid>
+                    <Image x:Name="BackgroundImage" Stretch="UniformToFill" Visibility="Collapsed"/>
+                    <MediaElement x:Name="BackgroundVideo" Stretch="UniformToFill" Visibility="Collapsed"
+                                  LoadedBehavior="Manual" UnloadedBehavior="Stop"/>
+                    <Grid x:Name="StageLayer" ClipToBounds="True"/>
+                    <TextBlock x:Name="StatusText" Foreground="#ffffff" FontSize="14" Margin="12"
+                               VerticalAlignment="Top" HorizontalAlignment="Left"
+                               TextWrapping="Wrap" MaxWidth="500"
+                               Background="#66000000" Padding="8,4"/>
+                </Grid>
+            </Border>
+
+            <!-- 底部高度分隔条 -->
+            <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          ResizeBehavior="PreviousAndNext" ResizeDirection="Rows" Background="{DynamicResource ThemeBorder}"/>
+
+            <!-- 底部：当前选中模型的表情/动作调试 -->
+            <Border Grid.Row="3" Margin="0,8,0,0" Background="{DynamicResource ThemePanel}" CornerRadius="6" Padding="6">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="时间线 / 表情动作（当前选中模型）" Foreground="{DynamicResource ThemeHeader}" FontSize="14" FontWeight="Bold" Margin="4,0,0,4"/>
+                    <ScrollViewer x:Name="TimelineScroll" VerticalScrollBarVisibility="Auto" MaxHeight="220">
+                        <WrapPanel x:Name="TimelinePanel" Background="{DynamicResource ThemePanel}" Margin="0,4,0,0"/>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

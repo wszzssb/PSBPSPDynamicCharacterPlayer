@@ -1,0 +1,22 @@
+# Build output
+bin/
+obj/
+release/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# FreeMote binaries (copy locally, usually not committed)
+lib/*.dll
+lib/*.exe
+lib/x64/*.dll
+lib/x86/*.dll
+
+# Runtime settings
+model_folder.txt
+theme.txt
+debug.log
+*.log
