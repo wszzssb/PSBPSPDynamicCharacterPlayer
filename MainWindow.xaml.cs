@@ -219,6 +219,9 @@ public partial class MainWindow : Window
             bool isPsb = ext.Equals(".psb", StringComparison.OrdinalIgnoreCase);
             if (!isPsp && !isPsb) continue;
 
+            // 隐藏软件自动生成的“PS4 -> Win”转换产物，避免模型库出现重复
+            if (isPsb && IsConvertedPsb(p)) continue;
+
             var fi = new FileInfo(p);
             if (fi.Length < 10 * 1024) continue;
 
@@ -227,6 +230,15 @@ public partial class MainWindow : Window
             ModelList.Items.Add(item);
         }
     }
+
+    static bool IsConvertedPsb(string path)
+    {
+        if (!Path.GetExtension(path).Equals(".psb", StringComparison.OrdinalIgnoreCase))
+            return false;
+        var name = Path.GetFileNameWithoutExtension(path);
+        return name.EndsWith(".ps4.win", StringComparison.OrdinalIgnoreCase);
+    }
+
 
     void ModelList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -356,7 +368,9 @@ public partial class MainWindow : Window
             _stage.Add(slot);
             RefreshStageList();
             SelectStage(_stage.Count - 1);
-            StatusText.Text = "已开启: " + Path.GetFileName(path);
+            StatusText.Text = Path.GetFileNameWithoutExtension(raw).EndsWith(".ps4.win", StringComparison.OrdinalIgnoreCase)
+                ? "检测到 PS4，转换为 Win 并开启: " + Path.GetFileName(path)
+                : "已开启: " + Path.GetFileName(path);
         }
         catch (Exception ex)
         {
@@ -413,8 +427,12 @@ public partial class MainWindow : Window
 
         if (!_stage.Any(s => !string.IsNullOrEmpty(s.RawPath) && string.Equals(s.RawPath, raw, StringComparison.OrdinalIgnoreCase)))
         {
-            try { if (!string.IsNullOrEmpty(raw)) File.Delete(raw); } catch { }
-            _tempFiles.Remove(raw);
+            // 只删除运行时生成的临时文件；PS4 转出来的 Win 文件保留在原文件旁边
+            if (!string.IsNullOrEmpty(raw) && _tempFiles.Contains(raw))
+            {
+                try { File.Delete(raw); } catch { }
+                _tempFiles.Remove(raw);
+            }
             var staleKeys = _rawCache.Where(kv => string.Equals(kv.Value, raw, StringComparison.OrdinalIgnoreCase)).Select(kv => kv.Key).ToList();
             foreach (var key in staleKeys) _rawCache.Remove(key);
         }
@@ -474,8 +492,9 @@ public partial class MainWindow : Window
         StatusText.Text = "当前模型: " + Path.GetFileName(_stage[idx].SourcePath);
     }
 
-    string PreparePsb(string pspPath)
+    string PreparePsb(string pspPath, out bool persistent)
     {
+        persistent = false;
         if (!_freeMountReady)
         {
             FreeMount.Init(null);
@@ -489,9 +508,19 @@ public partial class MainWindow : Window
         Stream psbStream = unpacked ?? (Stream)file;
         var psb = new PSB(psbStream, true, null);
 
-        // PS4 平台（尤其 RGBA4444_SW）当前 FreeMote 原生播放器无法渲染，直接拒绝以免闪退
+        // PS4 平台的纹理（RGBA4444_SW 等）FreeMote 原生播放器不能直接渲染，
+        // 这里自动转成 Win 平台并保存到原文件旁边（hello.ps4.psb -> hello.ps4.win.psb）。
         if (psb.Platform == PsbSpec.ps4)
-            throw new InvalidOperationException("暂不支持 PS4 平台 PSB（RGBA4444_SW 等格式），请先用其他工具转换");
+        {
+            PsbSpecConverter.SwitchSpec(psb, PsbSpec.win, FreeMoteExtension.DefaultPixelFormat(PsbSpec.win));
+            try { PsbExtension.FixMotionMetadata(psb); } catch { }
+
+            psb.Merge(false, false);
+            var output = Path.ChangeExtension(pspPath, $".{PsbSpec.win}{FreeMoteExtension.DefaultExtension(psb.Type)}");
+            File.WriteAllBytes(output, psb.Build());
+            persistent = true;
+            return output;
+        }
 
         if (psb.Platform == PsbSpec.krkr)
             PsbSpecConverter.SwitchSpec(psb, PsbSpec.win, FreeMoteExtension.DefaultPixelFormat(PsbSpec.krkr));
@@ -507,9 +536,9 @@ public partial class MainWindow : Window
     string GetOrPrepareRaw(string source)
     {
         if (_rawCache.TryGetValue(source, out var cached) && File.Exists(cached)) return cached;
-        var raw = PreparePsb(source);
+        var raw = PreparePsb(source, out bool persistent);
         _rawCache[source] = raw;
-        if (!_tempFiles.Contains(raw)) _tempFiles.Add(raw);
+        if (!persistent && !_tempFiles.Contains(raw)) _tempFiles.Add(raw);
         return raw;
     }
 
