@@ -7,7 +7,7 @@ English: **PSB/PSP Dynamic Character Player**
 ## 功能
 
 - 自动读取指定文件夹中的 `.PSP / .PSB` 模型，过滤小于 10KB 的 `.json` 旁路文件
-- 自动识别 PS4 平台 `.PSB`，转换为 Win 平台后播放；转换文件保存在原文件旁边（如 `xxx.ps4.psb` → `xxx.ps4.win.psb`）
+- 自动识别 PS4 平台 `.PSB`，转换为 Win 平台 + RGBA8 普通像素格式后播放；转换文件保存在原文件旁边（如 `xxx.ps4.psb` → `xxx.ps4.win.psb`）
 - 支持同时显示多个模型
 - 支持重复添加相同模型，并自动编号（`#2`、`#3`）
 - 支持通过左侧“框”点击切换当前模型

@@ -509,10 +509,11 @@ public partial class MainWindow : Window
         var psb = new PSB(psbStream, true, null);
 
         // PS4 平台的纹理（RGBA4444_SW 等）FreeMote 原生播放器不能直接渲染，
-        // 这里自动转成 Win 平台并保存到原文件旁边（hello.ps4.psb -> hello.ps4.win.psb）。
+        // 这里自动转成 Win 平台的普通像素格式（RGBA8）并保存到原文件旁边（hello.ps4.psb -> hello.ps4.win.psb）。
         if (psb.Platform == PsbSpec.ps4)
         {
             PsbSpecConverter.SwitchSpec(psb, PsbSpec.win, FreeMoteExtension.DefaultPixelFormat(PsbSpec.win));
+            ConvertPs4TexturesToWin(psb);
             try { PsbExtension.FixMotionMetadata(psb); } catch { }
 
             psb.Merge(false, false);
@@ -531,6 +532,27 @@ public partial class MainWindow : Window
         var tmp = Path.GetTempFileName();
         File.WriteAllBytes(tmp, psb.Build());
         return tmp;
+    }
+
+
+    static void ConvertPs4TexturesToWin(PSB psb)
+    {
+        var targetFormat = FreeMoteExtension.DefaultPixelFormat(PsbSpec.win);
+        var targetType = FreeMoteExtension.ToStringForPsb(targetFormat);
+        var metas = PsbResHelper.CollectResources<FreeMote.Psb.ImageMetadata>(psb, false);
+
+        foreach (var meta in metas)
+        {
+            if (meta.TypeString == null || meta.Width <= 0 || meta.Height <= 0) continue;
+
+            using (var bmp = meta.ToImage())
+            {
+                if (bmp == null) continue;
+                meta.TypeString.Value = targetType;
+                meta.Compress = PsbCompressType.None;
+                meta.SetData(bmp);
+            }
+        }
     }
 
     string GetOrPrepareRaw(string source)
