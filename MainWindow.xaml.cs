@@ -432,9 +432,23 @@ public partial class MainWindow : Window
         if (_selectedStage < 0 || _selectedStage >= _stage.Count) return;
 
         var slot = _stage[_selectedStage];
+
+        // 先解除 D3DImage 对旧渲染表面的引用，再释放 Emote，避免闪退
+        try
+        {
+            if (slot.Di != null)
+            {
+                slot.Di.Lock();
+                try { slot.Di.SetBackBuffer(D3DResourceType.IDirect3DSurface9, IntPtr.Zero); }
+                finally { slot.Di.Unlock(); }
+            }
+        }
+        catch { }
+
         if (slot.View != null) StageLayer.Children.Remove(slot.View);
         try { slot.Emote?.Dispose(); } catch { }
         try { slot.Emote?.D3DRelease(); } catch { }
+        try { slot.Di = null; slot.View = null; slot.Emote = null; slot.Player = null; } catch { }
 
         var raw = slot.RawPath;
         _stage.RemoveAt(_selectedStage);
@@ -806,6 +820,16 @@ public partial class MainWindow : Window
 
             foreach (var slot in _stage)
             {
+                try
+                {
+                    if (slot.Di != null)
+                    {
+                        slot.Di.Lock();
+                        try { slot.Di.SetBackBuffer(D3DResourceType.IDirect3DSurface9, IntPtr.Zero); }
+                        finally { slot.Di.Unlock(); }
+                    }
+                }
+                catch { }
                 try { slot.Emote?.Dispose(); } catch { }
                 try { slot.Emote?.D3DRelease(); } catch { }
                 slot.Emote = null;
