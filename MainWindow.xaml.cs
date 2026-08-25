@@ -512,7 +512,6 @@ public partial class MainWindow : Window
         // 这里自动转成 Win 平台的普通像素格式（RGBA8）并保存到原文件旁边（hello.ps4.psb -> hello.ps4.win.psb）。
         if (psb.Platform == PsbSpec.ps4)
         {
-            PsbSpecConverter.SwitchSpec(psb, PsbSpec.win, FreeMoteExtension.DefaultPixelFormat(PsbSpec.win));
             ConvertPs4TexturesToWin(psb);
             try { PsbExtension.FixMotionMetadata(psb); } catch { }
 
@@ -541,17 +540,34 @@ public partial class MainWindow : Window
         var targetType = FreeMoteExtension.ToStringForPsb(targetFormat);
         var metas = PsbResHelper.CollectResources<FreeMote.Psb.ImageMetadata>(psb, false);
 
-        foreach (var meta in metas)
+        var imageMetas = new List<FreeMote.Psb.ImageMetadata>();
+        var bitmaps = new List<System.Drawing.Bitmap>();
+        try
         {
-            if (meta.TypeString == null || meta.Width <= 0 || meta.Height <= 0) continue;
-
-            using (var bmp = meta.ToImage())
+            // 必须先按原始 ps4 spec 解码：PS4 的 RGBA4444_SW 实际是 Tile 格式。
+            // 如果先 SwitchSpec 到 win，会被当成非 Tile 解码，造成贴图错乱。
+            foreach (var meta in metas)
             {
+                if (meta.TypeString == null || meta.Width <= 0 || meta.Height <= 0) continue;
+                var bmp = meta.ToImage();
                 if (bmp == null) continue;
+                imageMetas.Add(meta);
+                bitmaps.Add(bmp);
+            }
+
+            PsbSpecConverter.SwitchSpec(psb, PsbSpec.win, targetFormat);
+
+            for (int i = 0; i < imageMetas.Count; i++)
+            {
+                var meta = imageMetas[i];
                 meta.TypeString.Value = targetType;
                 meta.Compress = PsbCompressType.None;
-                meta.SetData(bmp);
+                meta.SetData(bitmaps[i]);
             }
+        }
+        finally
+        {
+            foreach (var b in bitmaps) b.Dispose();
         }
     }
 
