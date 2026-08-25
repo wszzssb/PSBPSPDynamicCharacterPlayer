@@ -489,6 +489,10 @@ public partial class MainWindow : Window
         Stream psbStream = unpacked ?? (Stream)file;
         var psb = new PSB(psbStream, true, null);
 
+        // PS4 平台（尤其 RGBA4444_SW）当前 FreeMote 原生播放器无法渲染，直接拒绝以免闪退
+        if (psb.Platform == PsbSpec.ps4)
+            throw new InvalidOperationException("暂不支持 PS4 平台 PSB（RGBA4444_SW 等格式），请先用其他工具转换");
+
         if (psb.Platform == PsbSpec.krkr)
             PsbSpecConverter.SwitchSpec(psb, PsbSpec.win, FreeMoteExtension.DefaultPixelFormat(PsbSpec.krkr));
 
