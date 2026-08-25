@@ -193,7 +193,9 @@
                     <Image x:Name="BackgroundImage" Stretch="UniformToFill" Visibility="Collapsed"/>
                     <MediaElement x:Name="BackgroundVideo" Stretch="UniformToFill" Visibility="Collapsed"
                                   LoadedBehavior="Manual" UnloadedBehavior="Stop"/>
-                    <Grid x:Name="StageLayer" ClipToBounds="True"/>
+                    <Grid x:Name="StageLayer" ClipToBounds="True">
+                          <Image x:Name="Viewport" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
+                      </Grid>
                     <TextBlock x:Name="StatusText" Foreground="#ffffff" FontSize="14" Margin="12"
                                VerticalAlignment="Top" HorizontalAlignment="Left"
                                TextWrapping="Wrap" MaxWidth="500"

@@ -27,21 +27,29 @@ public partial class MainWindow : Window
         public string Name = "";
         public string SourcePath = "";
         public string RawPath = "";
-        public FreeMote.Emote? Emote;
         public FreeMote.EmotePlayer? Player;
-        public D3DImage? Di;
-        public Image? View;
         public bool Paused;
+        public List<TimelineRecord>? SavedTimelines;
+    }
+
+    class TimelineRecord
+    {
+        public string Label = "";
+        public FreeMote.TimelinePlayFlags Flags;
     }
 
     const string DefaultModelRoot = @"D:\test\galgame\Model1";
     string _modelRoot = DefaultModelRoot;
 
+    FreeMote.Emote? _emote;
+    FreeMote.EmotePlayer? _player;
+    D3DImage? _di;
+    IntPtr _scene = IntPtr.Zero;
+    bool _playing = true;
     bool _rendering;
     long _lastRenderTimestamp;
-    FreeMote.EmotePlayer? _player;
-    System.Windows.Point _lastDragPoint;
     bool _dragging;
+    System.Windows.Point _lastDragPoint;
     bool _initialLoaded;
     bool _updatingStageList;
     int _playerCounter;
@@ -61,12 +69,9 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        _diSelf = new D3DImage(); // keep a field? actually not needed
         ContentRendered += OnContentRendered;
         Closing += OnClosing;
     }
-
-    D3DImage? _diSelf;
 
     void OnContentRendered(object? sender, EventArgs e)
     {
@@ -122,11 +127,7 @@ public partial class MainWindow : Window
 
     void SaveModelRoot()
     {
-        try
-        {
-            File.WriteAllText(SettingsPath, _modelRoot);
-        }
-        catch { }
+        try { File.WriteAllText(SettingsPath, _modelRoot); } catch { }
     }
 
     void LoadSavedTheme()
@@ -203,14 +204,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        var files = Directory.GetFiles(_modelRoot)
-            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
+        var files = Directory.GetFiles(_modelRoot).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
         foreach (var p in files)
         {
             var ext = Path.GetExtension(p);
-
             if (ext.Equals(".json", StringComparison.OrdinalIgnoreCase))
             {
                 var jfi = new FileInfo(p);
@@ -225,12 +222,7 @@ public partial class MainWindow : Window
             var fi = new FileInfo(p);
             if (fi.Length < 10 * 1024) continue;
 
-            var item = new ListBoxItem
-            {
-                Content = Path.GetFileNameWithoutExtension(p),
-                Tag = p,
-                ToolTip = p
-            };
+            var item = new ListBoxItem { Content = Path.GetFileNameWithoutExtension(p), Tag = p, ToolTip = p };
             _items.Add(item);
             ModelList.Items.Add(item);
         }
@@ -239,28 +231,20 @@ public partial class MainWindow : Window
     void ModelList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (ModelList.SelectedItem is ListBoxItem { Tag: string path })
-        {
             StatusText.Text = "模型库选择: " + Path.GetFileName(path);
-        }
     }
 
     void StageList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_updatingStageList) return;
-        if (StageList.SelectedItem is ListBoxItem { Tag: int idx })
-        {
-            SelectStage(idx);
-        }
+        if (StageList.SelectedItem is ListBoxItem { Tag: int idx }) SelectStage(idx);
     }
 
     void ModelList_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         var item = ItemsControl.ContainerFromElement(ModelList, (DependencyObject)e.OriginalSource) as ListBoxItem;
-        if (item?.Tag is string path)
-        {
-            AddStageModel(path);
-            e.Handled = true;
-        }
+        if (item?.Tag is string path) AddStageModel(path);
+        e.Handled = true;
     }
 
     void StageList_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -284,7 +268,6 @@ public partial class MainWindow : Window
     void StageList_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
         if (e.LeftButton != System.Windows.Input.MouseButtonState.Pressed || _dragStartIndex < 0) return;
-
         var pos = e.GetPosition(StageList);
         if (Math.Abs(pos.X - _dragStartPoint.X) < SystemParameters.MinimumHorizontalDragDistance &&
             Math.Abs(pos.Y - _dragStartPoint.Y) < SystemParameters.MinimumVerticalDragDistance) return;
@@ -336,8 +319,8 @@ public partial class MainWindow : Window
         _stage.Insert(dst, slot);
 
         _selectedStage = dst;
-        RefreshStageOrderVisuals();
         RefreshStageList();
+        RebuildRendering();
         SelectStage(dst);
         StatusText.Text = "图层顺序已调整";
         e.Handled = true;
@@ -345,10 +328,8 @@ public partial class MainWindow : Window
 
     void AddBtn_Click(object sender, RoutedEventArgs e)
     {
-        if (ModelList.SelectedItem is ListBoxItem { Tag: string path })
-            AddStageModel(path);
-        else
-            StatusText.Text = "请先在模型库中选择要开启的模型";
+        if (ModelList.SelectedItem is ListBoxItem { Tag: string path }) AddStageModel(path);
+        else StatusText.Text = "请先在模型库中选择要开启的模型";
     }
 
     void CloseBtn_Click(object sender, RoutedEventArgs e) => RemoveSelectedStageModel();
@@ -357,10 +338,22 @@ public partial class MainWindow : Window
     {
         try
         {
+            EnsureEmote();
             var slot = new StageSlot { Name = "Chara" + (++_playerCounter), SourcePath = path };
-            _stage.Add(slot);
-            CreateSlotVisual(slot);
+            var raw = GetOrPrepareRaw(path);
+            slot.RawPath = raw;
+            var player = _emote!.CreatePlayer(slot.Name, raw);
+            if (player == null) throw new InvalidOperationException("FreeMote 未能创建玩家实例：" + path);
 
+            player.SetScale(1f, 0f, 0f);
+            player.SetCoord(0f, 0f, 0f, 0f);
+            player.SetVariable("fade_z", 256f, 0f, 0f);
+            player.SetSmoothing(true);
+            player.Show();
+            player.SetCoord(_stage.Count * 130f, 0f, 0f, 0f);
+            slot.Player = player;
+
+            _stage.Add(slot);
             RefreshStageList();
             SelectStage(_stage.Count - 1);
             StatusText.Text = "已开启: " + Path.GetFileName(path);
@@ -371,53 +364,32 @@ public partial class MainWindow : Window
         }
     }
 
-    void CreateSlotVisual(StageSlot slot)
+    void EnsureEmote()
     {
+        if (_emote != null) return;
         var hwnd = new WindowInteropHelper(this).EnsureHandle();
-        var emote = new FreeMote.Emote(hwnd, Math.Max(640, (int)StageLayer.ActualWidth), Math.Max(480, (int)StageLayer.ActualHeight), true);
-        emote.EmoteInit();
+        _emote = new FreeMote.Emote(hwnd, Math.Max(640, (int)StageLayer.ActualWidth), Math.Max(480, (int)StageLayer.ActualHeight), true);
+        _emote.EmoteInit();
 
-        var raw = GetOrPrepareRaw(slot.SourcePath);
-        slot.RawPath = raw;
-        var player = emote.CreatePlayer(slot.Name, raw);
-        if (player == null) throw new InvalidOperationException("FreeMote 未能创建玩家实例：" + slot.SourcePath);
-
-        player.SetScale(1f, 0f, 0f);
-        player.SetCoord(0f, 0f, 0f, 0f);
-        player.SetVariable("fade_z", 256f, 0f, 0f);
-        player.SetSmoothing(true);
-        player.Show();
-        player.SetCoord(_stage.Count * 130f, 0f, 0f, 0f);
-
-        var di = new D3DImage();
-        var view = new Image { Source = di, Stretch = Stretch.Fill };
-        RenderOptions.SetBitmapScalingMode(view, BitmapScalingMode.HighQuality);
-
-        slot.Emote = emote;
-        slot.Player = player;
-        slot.Di = di;
-        slot.View = view;
-
-        di.IsFrontBufferAvailableChanged += (_, _) =>
+        _di = new D3DImage();
+        Viewport.Source = _di;
+        _di.IsFrontBufferAvailableChanged += (_, _) =>
         {
-            if (di.IsFrontBufferAvailable) BeginSlotRendering(slot);
+            if (_di != null && _di.IsFrontBufferAvailable) BeginRenderingScene();
         };
-
-        StageLayer.Children.Add(view);
-        BeginSlotRendering(slot);
+        BeginRenderingScene();
     }
 
-    void BeginSlotRendering(StageSlot slot)
+    void BeginRenderingScene()
     {
-        if (slot.Emote == null || slot.Di == null) return;
-        if (!slot.Di.IsFrontBufferAvailable) return;
+        if (!_di.IsFrontBufferAvailable || _emote == null) return;
 
-        var surface = slot.Emote.D3DSurface;
-        if (surface == IntPtr.Zero) return;
+        _scene = _emote.D3DSurface;
+        if (_scene == IntPtr.Zero) return;
 
-        slot.Di.Lock();
-        try { slot.Di.SetBackBuffer(D3DResourceType.IDirect3DSurface9, surface); }
-        finally { slot.Di.Unlock(); }
+        _di.Lock();
+        try { _di.SetBackBuffer(D3DResourceType.IDirect3DSurface9, _scene); }
+        finally { _di.Unlock(); }
 
         if (!_rendering)
         {
@@ -432,23 +404,8 @@ public partial class MainWindow : Window
         if (_selectedStage < 0 || _selectedStage >= _stage.Count) return;
 
         var slot = _stage[_selectedStage];
-
-        // 先解除 D3DImage 对旧渲染表面的引用，再释放 Emote，避免闪退
-        try
-        {
-            if (slot.Di != null)
-            {
-                slot.Di.Lock();
-                try { slot.Di.SetBackBuffer(D3DResourceType.IDirect3DSurface9, IntPtr.Zero); }
-                finally { slot.Di.Unlock(); }
-            }
-        }
-        catch { }
-
-        if (slot.View != null) StageLayer.Children.Remove(slot.View);
-        try { slot.Emote?.Dispose(); } catch { }
-        try { slot.Emote?.D3DRelease(); } catch { }
-        try { slot.Di = null; slot.View = null; slot.Emote = null; slot.Player = null; } catch { }
+        if (_player == slot.Player) _player = null;
+        try { _emote?.DeletePlayer(slot.Player); } catch { }
 
         var raw = slot.RawPath;
         _stage.RemoveAt(_selectedStage);
@@ -468,7 +425,6 @@ public partial class MainWindow : Window
             RefreshStageList();
             BuildTimelineButtons();
             StatusText.Text = "舞台已清空";
-            StopRenderingScene();
         }
         else
         {
@@ -484,7 +440,6 @@ public partial class MainWindow : Window
         {
             StageList.Items.Clear();
             var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
             for (int i = 0; i < _stage.Count; i++)
             {
                 var key = _stage[i].SourcePath;
@@ -494,13 +449,7 @@ public partial class MainWindow : Window
 
                 var baseName = Path.GetFileNameWithoutExtension(_stage[i].SourcePath);
                 var label = cnt > 1 ? $"{baseName} #{cnt}" : baseName;
-
-                var item = new ListBoxItem
-                {
-                    Content = $"{i + 1}. " + label,
-                    Tag = i,
-                    ToolTip = _stage[i].SourcePath
-                };
+                var item = new ListBoxItem { Content = $"{i + 1}. " + label, Tag = i, ToolTip = _stage[i].SourcePath };
                 StageList.Items.Add(item);
             }
 
@@ -513,15 +462,6 @@ public partial class MainWindow : Window
         }
     }
 
-    void RefreshStageOrderVisuals()
-    {
-        StageLayer.Children.Clear();
-        for (int i = 0; i < _stage.Count; i++)
-        {
-            if (_stage[i].View != null) StageLayer.Children.Add(_stage[i].View);
-        }
-    }
-
     void SelectStage(int idx)
     {
         if (idx < 0 || idx >= _stage.Count) return;
@@ -531,8 +471,6 @@ public partial class MainWindow : Window
         RefreshStageList();
         BuildTimelineButtons();
         ApplyZoom((float)ZoomSlider.Value);
-        UpdatePauseButtons();
-
         StatusText.Text = "当前模型: " + Path.GetFileName(_stage[idx].SourcePath);
     }
 
@@ -548,7 +486,6 @@ public partial class MainWindow : Window
 
         string? shellName = null;
         var unpacked = ctx.OpenFromShell(file, ref shellName);
-
         Stream psbStream = unpacked ?? (Stream)file;
         var psb = new PSB(psbStream, true, null);
 
@@ -565,9 +502,7 @@ public partial class MainWindow : Window
 
     string GetOrPrepareRaw(string source)
     {
-        if (_rawCache.TryGetValue(source, out var cached) && File.Exists(cached))
-            return cached;
-
+        if (_rawCache.TryGetValue(source, out var cached) && File.Exists(cached)) return cached;
         var raw = PreparePsb(source);
         _rawCache[source] = raw;
         if (!_tempFiles.Contains(raw)) _tempFiles.Add(raw);
@@ -589,12 +524,7 @@ public partial class MainWindow : Window
         TimelinePanel.Children.Clear();
         if (_player == null)
         {
-            TimelinePanel.Children.Add(new TextBlock
-            {
-                Text = "请先开启并选择一个舞台模型",
-                Foreground = Brushes.Gray,
-                Margin = new Thickness(6)
-            });
+            TimelinePanel.Children.Add(new TextBlock { Text = "请先开启并选择一个舞台模型", Foreground = Brushes.Gray, Margin = new Thickness(6) });
             return;
         }
 
@@ -603,50 +533,19 @@ public partial class MainWindow : Window
 
         if (mainCount > 0)
         {
-            TimelinePanel.Children.Add(new TextBlock
-            {
-                Text = "主时间线",
-                Foreground = Brushes.LightSteelBlue,
-                FontWeight = FontWeights.Bold,
-                Margin = new Thickness(4, 2, 12, 2),
-                VerticalAlignment = VerticalAlignment.Center
-            });
-
-            for (uint i = 0; i < mainCount; i++)
-            {
-                var label = _player.GetMainTimelineLabelAt(i);
-                AddTimelineButton(label, "main");
-            }
+            TimelinePanel.Children.Add(new TextBlock { Text = "主时间线", Foreground = Brushes.LightSteelBlue, FontWeight = FontWeights.Bold, Margin = new Thickness(4, 2, 12, 2), VerticalAlignment = VerticalAlignment.Center });
+            for (uint i = 0; i < mainCount; i++) AddTimelineButton(_player.GetMainTimelineLabelAt(i), "main");
         }
 
         if (diffCount > 0)
         {
             TimelinePanel.Children.Add(new Separator { Width = 2, Margin = new Thickness(8, 4, 8, 4) });
-            TimelinePanel.Children.Add(new TextBlock
-            {
-                Text = "差分/表情",
-                Foreground = Brushes.Orange,
-                FontWeight = FontWeights.Bold,
-                Margin = new Thickness(4, 2, 12, 2),
-                VerticalAlignment = VerticalAlignment.Center
-            });
-
-            for (uint i = 0; i < diffCount; i++)
-            {
-                var label = _player.GetDiffTimelineLabelAt(i);
-                AddTimelineButton(label, "diff");
-            }
+            TimelinePanel.Children.Add(new TextBlock { Text = "差分/表情", Foreground = Brushes.Orange, FontWeight = FontWeights.Bold, Margin = new Thickness(4, 2, 12, 2), VerticalAlignment = VerticalAlignment.Center });
+            for (uint i = 0; i < diffCount; i++) AddTimelineButton(_player.GetDiffTimelineLabelAt(i), "diff");
         }
 
         if (mainCount == 0 && diffCount == 0)
-        {
-            TimelinePanel.Children.Add(new TextBlock
-            {
-                Text = "该 PSP/PSB 没有可切换时间线",
-                Foreground = Brushes.Gray,
-                Margin = new Thickness(6)
-            });
-        }
+            TimelinePanel.Children.Add(new TextBlock { Text = "该 PSP/PSB 没有可切换时间线", Foreground = Brushes.Gray, Margin = new Thickness(6) });
     }
 
     void AddTimelineButton(string label, string kind)
@@ -675,49 +574,86 @@ public partial class MainWindow : Window
             _player.PlayTimeline(label, flags);
             StatusText.Text = "播放时间线: " + label + (kind == "diff" ? " (差分)" : "");
         }
-        catch (Exception ex)
-        {
-            StatusText.Text = "时间线播放失败: " + ex.Message;
-        }
+        catch (Exception ex) { StatusText.Text = "时间线播放失败: " + ex.Message; }
     }
 
     void PauseCurrentBtn_Click(object sender, RoutedEventArgs e)
     {
-        if (_selectedStage < 0 || _selectedStage >= _stage.Count)
+        if (_selectedStage < 0 || _selectedStage >= _stage.Count) { StatusText.Text = "请先选择一个模型"; return; }
+        var slot = _stage[_selectedStage];
+        if (slot.Paused) return;
+
+        var saved = new List<TimelineRecord>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        uint n = slot.Player!.CountPlayingTimelines();
+        for (uint i = 0; i < n; i++)
         {
-            StatusText.Text = "请先选择一个模型";
-            return;
+            try
+            {
+                var label = slot.Player.GetPlayingTimelineLabelAt(i);
+                var flags = (FreeMote.TimelinePlayFlags)slot.Player.GetPlayingTimelineFlagsAt(i);
+                if (!seen.Contains(label)) { saved.Add(new TimelineRecord { Label = label, Flags = flags }); seen.Add(label); }
+                slot.Player.StopTimeline(label);
+            }
+            catch { }
         }
 
-        _stage[_selectedStage].Paused = true;
-        StatusText.Text = "已暂停当前模型";
+        uint mainCount = slot.Player.CountMainTimelines();
+        for (uint i = 0; i < mainCount; i++)
+        {
+            try
+            {
+                var label = slot.Player.GetMainTimelineLabelAt(i);
+                if (!seen.Contains(label)) { saved.Add(new TimelineRecord { Label = label, Flags = FreeMote.TimelinePlayFlags.NONE }); seen.Add(label); slot.Player.StopTimeline(label); }
+            }
+            catch { }
+        }
+
+        uint diffCount = slot.Player.CountDiffTimelines();
+        for (uint i = 0; i < diffCount; i++)
+        {
+            try
+            {
+                var label = slot.Player.GetDiffTimelineLabelAt(i);
+                if (!seen.Contains(label)) { saved.Add(new TimelineRecord { Label = label, Flags = FreeMote.TimelinePlayFlags.TIMELINE_PLAY_DIFFERENCE }); seen.Add(label); slot.Player.StopTimeline(label); }
+            }
+            catch { }
+        }
+
+        slot.SavedTimelines = saved;
+        slot.Paused = true;
+        StatusText.Text = "已停止当前模型动画";
     }
 
     void ResumeCurrentBtn_Click(object sender, RoutedEventArgs e)
     {
-        if (_selectedStage < 0 || _selectedStage >= _stage.Count)
-        {
-            StatusText.Text = "请先选择一个模型";
-            return;
-        }
+        if (_selectedStage < 0 || _selectedStage >= _stage.Count) return;
+        var slot = _stage[_selectedStage];
+        if (!slot.Paused) return;
 
-        _stage[_selectedStage].Paused = false;
+        if (slot.SavedTimelines != null)
+        {
+            foreach (var t in slot.SavedTimelines)
+            {
+                try { slot.Player!.PlayTimeline(t.Label, t.Flags); } catch { }
+            }
+        }
+        slot.SavedTimelines = null;
+        slot.Paused = false;
         StatusText.Text = "已恢复当前模型";
     }
 
     void PauseAllBtn_Click(object sender, RoutedEventArgs e)
     {
-        foreach (var s in _stage) s.Paused = true;
+        _playing = false;
         StatusText.Text = "已全部暂停";
     }
 
     void ResumeAllBtn_Click(object sender, RoutedEventArgs e)
     {
-        foreach (var s in _stage) s.Paused = false;
+        _playing = true;
         StatusText.Text = "已全部恢复";
     }
-
-    void UpdatePauseButtons() { }
 
     void PrevBtn_Click(object sender, RoutedEventArgs e) => MoveModel(-1);
     void NextBtn_Click(object sender, RoutedEventArgs e) => MoveModel(1);
@@ -739,21 +675,13 @@ public partial class MainWindow : Window
             SelectedPath = Directory.Exists(_modelRoot) ? _modelRoot : DefaultModelRoot,
             ShowNewFolderButton = true
         };
-
         if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
         {
             _modelRoot = dlg.SelectedPath;
             SaveModelRoot();
             LoadModelList();
-            if (_items.Count > 0)
-            {
-                ModelList.SelectedIndex = 0;
-                StatusText.Text = "已切换到文件夹: " + _modelRoot;
-            }
-            else
-            {
-                StatusText.Text = "所选文件夹中没有找到 PSP/PSB 动态立绘";
-            }
+            if (_items.Count > 0) { ModelList.SelectedIndex = 0; StatusText.Text = "已切换到文件夹: " + _modelRoot; }
+            else StatusText.Text = "所选文件夹中没有找到 PSP/PSB 动态立绘";
         }
     }
 
@@ -771,7 +699,6 @@ public partial class MainWindow : Window
             BackgroundVideo.Stop();
             BackgroundVideo.Source = null;
             BackgroundVideo.Visibility = Visibility.Collapsed;
-
             BackgroundImage.Source = new BitmapImage(new Uri(dlg.FileName));
             BackgroundImage.Visibility = Visibility.Visible;
             StatusText.Text = "背景图片: " + Path.GetFileName(dlg.FileName);
@@ -785,7 +712,6 @@ public partial class MainWindow : Window
         {
             BackgroundImage.Source = null;
             BackgroundImage.Visibility = Visibility.Collapsed;
-
             BackgroundVideo.Source = new Uri(dlg.FileName);
             BackgroundVideo.Visibility = Visibility.Visible;
             BackgroundVideo.Play();
@@ -798,7 +724,6 @@ public partial class MainWindow : Window
         BackgroundVideo.Stop();
         BackgroundVideo.Source = null;
         BackgroundVideo.Visibility = Visibility.Collapsed;
-
         BackgroundImage.Source = null;
         BackgroundImage.Visibility = Visibility.Collapsed;
         StatusText.Text = "背景已清除";
@@ -816,37 +741,45 @@ public partial class MainWindow : Window
         {
             int sel = _selectedStage;
             StopRenderingScene();
-            StageLayer.Children.Clear();
 
-            foreach (var slot in _stage)
+            if (_emote != null)
+            {
+                try { _emote.Dispose(); } catch { }
+                try { _emote.D3DRelease(); } catch { }
+                _emote = null;
+            }
+            if (_di != null)
             {
                 try
                 {
-                    if (slot.Di != null)
-                    {
-                        slot.Di.Lock();
-                        try { slot.Di.SetBackBuffer(D3DResourceType.IDirect3DSurface9, IntPtr.Zero); }
-                        finally { slot.Di.Unlock(); }
-                    }
+                    _di.Lock();
+                    try { _di.SetBackBuffer(D3DResourceType.IDirect3DSurface9, IntPtr.Zero); }
+                    finally { _di.Unlock(); }
                 }
                 catch { }
-                try { slot.Emote?.Dispose(); } catch { }
-                try { slot.Emote?.D3DRelease(); } catch { }
-                slot.Emote = null;
-                slot.Player = null;
-                slot.Di = null;
-                slot.View = null;
+                _di = null;
             }
+            Viewport.Source = null;
 
-            foreach (var slot in _stage)
+            EnsureEmote();
+            for (int i = 0; i < _stage.Count; i++)
             {
-                CreateSlotVisual(slot);
+                var slot = _stage[i];
+                var raw = GetOrPrepareRaw(slot.SourcePath);
+                slot.RawPath = raw;
+                var player = _emote!.CreatePlayer(slot.Name, raw);
+                if (player == null) throw new InvalidOperationException("重建模型失败：" + slot.SourcePath);
+                player.SetScale(1f, 0f, 0f);
+                player.SetCoord(i * 130f, 0f, 0f, 0f);
+                player.SetVariable("fade_z", 256f, 0f, 0f);
+                player.SetSmoothing(true);
+                player.Show();
+                slot.Player = player;
             }
 
-            if (sel >= 0 && sel < _stage.Count)
-                SelectStage(sel);
-            else
-                BuildTimelineButtons();
+            BeginRenderingScene();
+            if (sel >= 0 && sel < _stage.Count) SelectStage(sel);
+            else BuildTimelineButtons();
         }
         catch (Exception ex)
         {
@@ -861,39 +794,32 @@ public partial class MainWindow : Window
             CompositionTarget.Rendering -= OnRendering;
             _rendering = false;
         }
+        _scene = IntPtr.Zero;
     }
 
     void OnRendering(object? sender, EventArgs e)
     {
+        if (!_di.IsFrontBufferAvailable || _emote == null || _scene == IntPtr.Zero) return;
+
         long now = Stopwatch.GetTimestamp();
         double elapsedMs = (now - _lastRenderTimestamp) * 1000.0 / Stopwatch.Frequency;
         _lastRenderTimestamp = now;
 
-        foreach (var slot in _stage)
+        try
         {
-            if (slot.Emote == null || slot.Di == null) continue;
-            if (!slot.Di.IsFrontBufferAvailable) continue;
+            _emote.Update(_playing ? (float)elapsedMs : 0f);
 
+            _di.Lock();
             try
             {
-                if (!slot.Paused)
-                    slot.Emote.Update((float)elapsedMs);
-
-                slot.Di.Lock();
-                try
-                {
-                    slot.Emote.D3DBeginScene();
-                    slot.Emote.Draw();
-                    slot.Emote.D3DEndScene();
-                    slot.Di.AddDirtyRect(new Int32Rect(0, 0, slot.Di.PixelWidth, slot.Di.PixelHeight));
-                }
-                finally
-                {
-                    slot.Di.Unlock();
-                }
+                _emote.D3DBeginScene();
+                _emote.Draw();
+                _emote.D3DEndScene();
+                _di.AddDirtyRect(new Int32Rect(0, 0, _di.PixelWidth, _di.PixelHeight));
             }
-            catch { }
+            finally { _di.Unlock(); }
         }
+        catch { }
     }
 
     void BgModeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) => ApplyBgMode();
@@ -901,7 +827,6 @@ public partial class MainWindow : Window
     void ApplyBgMode()
     {
         if (BackgroundImage == null || BackgroundVideo == null) return;
-
         var mode = (BgModeCombo.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "自适应";
         var stretch = mode switch
         {
@@ -910,7 +835,6 @@ public partial class MainWindow : Window
             "原始大小" => Stretch.None,
             _ => Stretch.Uniform
         };
-
         BackgroundImage.Stretch = stretch;
         BackgroundVideo.Stretch = stretch;
     }
@@ -964,7 +888,7 @@ public partial class MainWindow : Window
                 hover = MixColor(panel, accent, 0.28f);
                 borderStrong = accent;
                 break;
-            default: // 深蓝
+            default:
                 bg = Color.FromRgb(0x10, 0x10, 0x18); panel = Color.FromRgb(0x18, 0x18, 0x26); item = Color.FromRgb(0x1e, 0x1e, 0x2c);
                 accent = Color.FromRgb(0x3a, 0x5f, 0x9f); header = Color.FromRgb(0x9e, 0xc5, 0xff); text = Color.FromRgb(0xe8, 0xe8, 0xf0);
                 sub = Color.FromRgb(0x88, 0x99, 0xaa); border = Color.FromRgb(0x33, 0x44, 0x55); hover = Color.FromRgb(0x29, 0x36, 0x4d);
@@ -986,18 +910,8 @@ public partial class MainWindow : Window
 
         if (LibraryFrame != null) LibraryFrame.BorderBrush = new SolidColorBrush(border);
         if (StageFrame != null) StageFrame.BorderBrush = new SolidColorBrush(border);
-        if (ModelList != null)
-        {
-            ModelList.Background = new SolidColorBrush(panel);
-            ModelList.Foreground = new SolidColorBrush(text);
-            ModelList.BorderBrush = new SolidColorBrush(border);
-        }
-        if (StageList != null)
-        {
-            StageList.Background = new SolidColorBrush(panel);
-            StageList.Foreground = new SolidColorBrush(text);
-            StageList.BorderBrush = new SolidColorBrush(border);
-        }
+        if (ModelList != null) { ModelList.Background = new SolidColorBrush(panel); ModelList.Foreground = new SolidColorBrush(text); ModelList.BorderBrush = new SolidColorBrush(border); }
+        if (StageList != null) { StageList.Background = new SolidColorBrush(panel); StageList.Foreground = new SolidColorBrush(text); StageList.BorderBrush = new SolidColorBrush(border); }
         if (TimelinePanel != null) TimelinePanel.Background = new SolidColorBrush(panel);
         if (FolderPathText != null) FolderPathText.Foreground = new SolidColorBrush(sub);
     }
@@ -1017,29 +931,20 @@ public partial class MainWindow : Window
             AnyColor = true,
             Color = System.Drawing.Color.FromArgb(curAccent.R, curAccent.G, curAccent.B)
         };
-
         if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
         {
             _customAccent = Color.FromRgb(dlg.Color.R, dlg.Color.G, dlg.Color.B);
-
             bool hasCustom = false;
             foreach (var obj in ThemeCombo.Items)
             {
-                if (obj is ComboBoxItem ci && (string?)ci.Content == "自定义")
-                {
-                    hasCustom = true;
-                    ThemeCombo.SelectedItem = ci;
-                    break;
-                }
+                if (obj is ComboBoxItem ci && (string?)ci.Content == "自定义") { hasCustom = true; ThemeCombo.SelectedItem = ci; break; }
             }
-
             if (!hasCustom)
             {
                 var custom = new ComboBoxItem { Content = "自定义" };
                 ThemeCombo.Items.Add(custom);
                 ThemeCombo.SelectedItem = custom;
             }
-
             ApplyTheme("自定义");
             SaveTheme("自定义");
             StatusText.Text = "已应用自定义主题色";
@@ -1111,10 +1016,11 @@ public partial class MainWindow : Window
     void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         StopRenderingScene();
-        foreach (var slot in _stage)
+        if (_emote != null)
         {
-            try { slot.Emote?.Dispose(); } catch { }
-            try { slot.Emote?.D3DRelease(); } catch { }
+            try { _emote.Dispose(); } catch { }
+            try { _emote.D3DRelease(); } catch { }
+            _emote = null;
         }
         DeleteTempFiles();
     }
